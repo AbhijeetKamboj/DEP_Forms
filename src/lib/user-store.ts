@@ -5,6 +5,7 @@ import {
   authenticateUser as authenticateUserInMemory,
   findUserByEmail as findUserByEmailInMemory,
   listUsers as listUsersInMemory,
+  updateUserPassword as updateUserPasswordInMemory,
   updateUserRole as updateUserRoleInMemory,
 } from "@/lib/mock-db";
 
@@ -12,10 +13,13 @@ export type PersistedUser = {
   id: string;
   email: string;
   fullName: string | null;
+  department: string | null;
   role: AppRole | null;
   createdAt: Date;
   updatedAt: Date;
 };
+
+const STUDENT_ROLE_REQUEST_TAG = "__ROLE_REQUEST_STUDENT__";
 
 let schemaReady = false;
 
@@ -71,10 +75,16 @@ async function ensureSchemaAndSeed() {
       email TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       full_name TEXT,
+      department TEXT,
       role TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  // Add the department column if it does not already exist
+  await pool.query(`
+    ALTER TABLE app_users ADD COLUMN IF NOT EXISTS department TEXT;
   `);
 
   // Normalize legacy dean account emails to the new canonical dean mailbox.
@@ -148,11 +158,27 @@ async function ensureSchemaAndSeed() {
   `
   );
 
+  // Normalize canonical stakeholder display names.
+  await pool.query(
+    `
+    UPDATE app_users
+    SET full_name = CASE
+      WHEN email = 'dean@iitrpr.ac.in' THEN 'Dean'
+      WHEN email = 'academics@iitrpr.ac.in' THEN 'Academics'
+      WHEN email = 'rnd@iitrpr.ac.in' THEN 'R&D'
+      ELSE full_name
+    END,
+    updated_at = NOW()
+    WHERE email IN ('dean@iitrpr.ac.in', 'academics@iitrpr.ac.in', 'rnd@iitrpr.ac.in')
+  `
+  );
+
   const seedAccounts: Array<{
     email: string;
     fullName: string;
     role: AppRole;
     password: string;
+    department?: string;
   }> = [
     {
       email: "admin@iitrpr.ac.in",
@@ -162,7 +188,7 @@ async function ensureSchemaAndSeed() {
     },
     {
       email: "academics@iitrpr.ac.in",
-      fullName: "Forwarding Authority (Academics)",
+      fullName: "Academics",
       role: "FORWARDING_AUTHORITY_ACADEMICS",
       password: "123456",
     },
@@ -174,7 +200,7 @@ async function ensureSchemaAndSeed() {
     },
     {
       email: "rnd@iitrpr.ac.in",
-      fullName: "Forwarding Authority (R&D)",
+      fullName: "R&D",
       role: "FORWARDING_AUTHORITY_R_AND_D",
       password: "123456",
     },
@@ -201,12 +227,28 @@ async function ensureSchemaAndSeed() {
       fullName: "Section Head",
       role: "SECTION_HEAD",
       password: "123456",
+      department: "CSE",
+    },
+    {
+      email: "section.head.ee@iitrpr.ac.in",
+      fullName: "Section Head (EE)",
+      role: "SECTION_HEAD",
+      password: "123456",
+      department: "EE",
     },
     {
       email: "hod@iitrpr.ac.in",
       fullName: "Head of Department",
       role: "HOD",
       password: "123456",
+      department: "CSE",
+    },
+    {
+      email: "hod.ee@iitrpr.ac.in",
+      fullName: "Head of Department (EE)",
+      role: "HOD",
+      password: "123456",
+      department: "EE",
     },
     {
       email: "registrar@iitrpr.ac.in",
@@ -216,7 +258,7 @@ async function ensureSchemaAndSeed() {
     },
     {
       email: "dean@iitrpr.ac.in",
-      fullName: "Dean FA&A",
+      fullName: "Dean",
       role: "DEAN_FAA",
       password: "123456",
     },
@@ -261,17 +303,89 @@ async function ensureSchemaAndSeed() {
   for (const account of seedAccounts) {
     await pool.query(
       `
-      INSERT INTO app_users (id, email, password_hash, full_name, role)
-      VALUES ($1, $2, $3, $4, $5)
-      ON CONFLICT (email) DO NOTHING
+      INSERT INTO app_users (id, email, password_hash, full_name, department, role)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (email) DO UPDATE SET department = EXCLUDED.department
     `,
       [
         randomUUID(),
         normalizeEmail(account.email),
         hashPassword(account.password),
         account.fullName,
+        account.department ?? null,
         account.role,
       ]
+    );
+  }
+
+  // Create dynamic workflows table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_workflows (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      stages JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  const coreWorkflows = [
+    {
+      id: "email-id",
+      name: "Email ID Request",
+      description: "Standard flow for institutional email creation.",
+      stages: JSON.stringify([
+        { stage: 1, role: "FORWARDING_AUTHORITY_ACADEMICS,FORWARDING_AUTHORITY_R_AND_D,ESTABLISHMENT" },
+        { stage: 2, role: "IT_ADMIN" }
+      ]),
+    },
+    {
+      id: "identity-card",
+      name: "Identity Card",
+      description: "Multi-level verification for issuing physical ID cards.",
+      stages: JSON.stringify([
+        { stage: 1, role: "HOD,SECTION_HEAD" },
+        { stage: 2, role: "ESTABLISHMENT" },
+        { stage: 3, role: "REGISTRAR,DEAN_FAA" }
+      ]),
+    },
+    {
+      id: "vehicle-sticker",
+      name: "Vehicle Sticker",
+      description: "Campus vehicle access authorization.",
+      stages: JSON.stringify([
+        { stage: 1, role: "SUPERVISOR,HOD" },
+        { stage: 2, role: "SECURITY_OFFICE" }
+      ]),
+    },
+    {
+      id: "guest-house",
+      name: "Guest House Booking",
+      description: "Three-stage approval for guest limits and capacity.",
+      stages: JSON.stringify([
+        { stage: 1, role: "DEAN_FAA,DEPUTY_DEAN,HOD,STUDENT_AFFAIRS_HOSTEL_MGMT,DIRECTOR" },
+        { stage: 2, role: "GUEST_HOUSE_INCHARGE" },
+        { stage: 3, role: "GUEST_HOUSE_COMMITTEE_CHAIR" }
+      ]),
+    },
+    {
+      id: "hostel-undertaking",
+      name: "Hostel Undertaking",
+      description: "Single-step warden acknowledgment.",
+      stages: JSON.stringify([
+        { stage: 1, role: "HOSTEL_WARDEN" }
+      ]),
+    }
+  ];
+
+  for (const wf of coreWorkflows) {
+    await pool.query(
+      `
+      INSERT INTO app_workflows (id, name, description, stages)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (id) DO NOTHING
+      `,
+      [wf.id, wf.name, wf.description, wf.stages]
     );
   }
 
@@ -282,6 +396,7 @@ function mapRow(row: {
   id: string;
   email: string;
   full_name: string | null;
+  department: string | null;
   role: string | null;
   created_at: Date;
   updated_at: Date;
@@ -290,6 +405,7 @@ function mapRow(row: {
     id: row.id,
     email: row.email,
     fullName: row.full_name,
+    department: row.department,
     role: normalizeLegacyRole(row.role),
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
@@ -309,7 +425,7 @@ export async function findUserByEmail(email: string) {
 
   const result = await pool.query(
     `
-    SELECT id, email, full_name, role, created_at, updated_at
+    SELECT id, email, full_name, department, role, created_at, updated_at
     FROM app_users
     WHERE email = $1
     LIMIT 1
@@ -341,7 +457,7 @@ export async function authenticateUser(input: {
 
   const existing = await pool.query(
     `
-    SELECT id, email, password_hash, full_name, role, created_at, updated_at
+    SELECT id, email, password_hash, full_name, department, role, created_at, updated_at
     FROM app_users
     WHERE email = $1
     LIMIT 1
@@ -351,40 +467,48 @@ export async function authenticateUser(input: {
 
   if (input.mode === "login") {
     if (!existing.rowCount || !existing.rows[0]) {
-      throw new Error("Account not found. Please sign up first.");
+      if (normalizedEmail.endsWith("@iitrpr.ac.in")) {
+        // Auto sign-up the user on first login with their internal email
+        input.mode = "signup";
+      } else {
+        throw new Error("Account not found. Please sign up first.");
+      }
+    } else {
+      const row = existing.rows[0] as {
+        id: string;
+        email: string;
+        password_hash: string;
+        full_name: string | null;
+        department: string | null;
+        role: AppRole | null;
+        created_at: Date;
+        updated_at: Date;
+      };
+
+      if (!verifyPassword(input.password, row.password_hash)) {
+        throw new Error("Invalid password.");
+      }
+
+      const nextFullName = input.fullName?.trim() || row.full_name;
+      const nextRole = input.forceSystemAdmin ? "SYSTEM_ADMIN" : row.role;
+
+      const updated = await pool.query(
+        `
+        UPDATE app_users
+        SET full_name = $2,
+            role = $3,
+            updated_at = NOW()
+        WHERE email = $1
+        RETURNING id, email, full_name, department, role, created_at, updated_at
+      `,
+        [normalizedEmail, nextFullName, nextRole]
+      );
+
+      return { user: mapRow(updated.rows[0]), isNew: false };
     }
-
-    const row = existing.rows[0] as {
-      id: string;
-      email: string;
-      password_hash: string;
-      full_name: string | null;
-      role: AppRole | null;
-      created_at: Date;
-      updated_at: Date;
-    };
-
-    if (!verifyPassword(input.password, row.password_hash)) {
-      throw new Error("Invalid password.");
-    }
-
-    const nextFullName = input.fullName?.trim() || row.full_name;
-    const nextRole = input.forceSystemAdmin ? "SYSTEM_ADMIN" : row.role;
-
-    const updated = await pool.query(
-      `
-      UPDATE app_users
-      SET full_name = $2,
-          role = $3,
-          updated_at = NOW()
-      WHERE email = $1
-      RETURNING id, email, full_name, role, created_at, updated_at
-    `,
-      [normalizedEmail, nextFullName, nextRole]
-    );
-
-    return { user: mapRow(updated.rows[0]), isNew: false };
   }
+
+
 
   if (existing.rowCount && existing.rows[0]) {
     throw new Error("Account already exists. Please log in.");
@@ -398,9 +522,9 @@ export async function authenticateUser(input: {
 
   const inserted = await pool.query(
     `
-    INSERT INTO app_users (id, email, password_hash, full_name, role)
-    VALUES ($1, $2, $3, $4, $5)
-    RETURNING id, email, full_name, role, created_at, updated_at
+    INSERT INTO app_users (id, email, password_hash, full_name, department, role)
+    VALUES ($1, $2, $3, $4, NULL, $5)
+    RETURNING id, email, full_name, department, role, created_at, updated_at
   `,
     [
       randomUUID(),
@@ -412,6 +536,38 @@ export async function authenticateUser(input: {
   );
 
   return { user: mapRow(inserted.rows[0]), isNew: true };
+}
+
+export async function updateUserPassword(email: string, newPassword: string) {
+  if (!newPassword || newPassword.length < 6) {
+    throw new Error("Password must be at least 6 characters.");
+  }
+
+  if (!hasDatabaseUrl()) {
+    return updateUserPasswordInMemory(email, newPassword);
+  }
+
+  await ensureSchemaAndSeed();
+  const pool = getPgPool();
+  if (!pool) {
+    return updateUserPasswordInMemory(email, newPassword);
+  }
+
+  const normalizedEmail = normalizeEmail(email);
+  const result = await pool.query(
+    `
+    UPDATE app_users
+    SET password_hash = $2,
+        updated_at = NOW()
+    WHERE email = $1
+    RETURNING id
+  `,
+    [normalizedEmail, hashPassword(newPassword)]
+  );
+
+  if (result.rowCount === 0) {
+    throw new Error("Account not found.");
+  }
 }
 
 export async function listUsers() {
@@ -427,7 +583,7 @@ export async function listUsers() {
 
   const result = await pool.query(
     `
-    SELECT id, email, full_name, role, created_at, updated_at
+    SELECT id, email, full_name, department, role, created_at, updated_at
     FROM app_users
     ORDER BY role ASC NULLS FIRST, created_at DESC
   `
@@ -439,6 +595,7 @@ export async function listUsers() {
         id: string;
         email: string;
         full_name: string | null;
+        department: string | null;
         role: AppRole | null;
         created_at: Date;
         updated_at: Date;
@@ -464,9 +621,58 @@ export async function updateUserRole(userId: string, role: AppRole) {
     SET role = $2,
         updated_at = NOW()
     WHERE id = $1
-    RETURNING id, email, full_name, role, created_at, updated_at
+    RETURNING id, email, full_name, department, role, created_at, updated_at
   `,
     [userId, role]
+  );
+
+  if (updated.rowCount === 0) {
+    throw new Error("User not found.");
+  }
+
+  return mapRow(updated.rows[0]);
+}
+
+export function isStudentRoleRequestTagged(user: Pick<PersistedUser, "department" | "role">) {
+  return user.role === null && user.department === STUDENT_ROLE_REQUEST_TAG;
+}
+
+export async function setStudentRoleRequestTag(userId: string, isStudentRequest: boolean) {
+  if (!hasDatabaseUrl()) {
+    const users = listUsersInMemory();
+    const user = users.find((entry) => entry.id === userId);
+    if (!user) {
+      throw new Error("User not found.");
+    }
+
+    user.department = isStudentRequest ? STUDENT_ROLE_REQUEST_TAG : null;
+    user.updatedAt = new Date();
+    return user;
+  }
+
+  await ensureSchemaAndSeed();
+  const pool = getPgPool();
+  if (!pool) {
+    const users = listUsersInMemory();
+    const user = users.find((entry) => entry.id === userId);
+    if (!user) {
+      throw new Error("User not found.");
+    }
+
+    user.department = isStudentRequest ? STUDENT_ROLE_REQUEST_TAG : null;
+    user.updatedAt = new Date();
+    return user;
+  }
+
+  const updated = await pool.query(
+    `
+    UPDATE app_users
+    SET department = $2,
+        updated_at = NOW()
+    WHERE id = $1
+    RETURNING id, email, full_name, department, role, created_at, updated_at
+  `,
+    [userId, isStudentRequest ? STUDENT_ROLE_REQUEST_TAG : null]
   );
 
   if (updated.rowCount === 0) {

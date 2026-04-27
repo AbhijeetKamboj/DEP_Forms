@@ -27,6 +27,12 @@ Set both URLs from Supabase in `.env`:
 - `DATABASE_URL`: pooled/transactional URL (usually port `6543`)
 - `DIRECT_URL`: direct DB URL for migrations (usually port `5432`)
 
+For password reset via Supabase OTP, also set:
+
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
 ## 3) Prisma Commands
 
 ```bash

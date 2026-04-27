@@ -3,7 +3,7 @@ export type ForwardingSection =
   | "ESTABLISHMENT"
   | "RESEARCH_AND_DEVELOPMENT";
 
-export type AppRole =
+export type BuiltInAppRole =
   | "STUDENT"
   | "INTERN"
   | "EMPLOYEE"
@@ -26,6 +26,8 @@ export type AppRole =
   | "IT_ADMIN"
   | "SYSTEM_ADMIN";
 
+export type AppRole = BuiltInAppRole | (string & {});
+
 export type AuthMode = "login" | "signup";
 
 export type EmailIdFormStatus = "PENDING" | "FORWARDED" | "ISSUED" | "REJECTED";
@@ -37,6 +39,7 @@ export type UserRecord = {
   email: string;
   password: string;
   fullName: string | null;
+  department?: string | null;
   role: AppRole | null;
 };
 
@@ -150,7 +153,7 @@ function ensureSeedData(store: AppStore) {
     },
     {
       email: "academics@iitrpr.ac.in",
-      fullName: "Forwarding Authority (Academics)",
+      fullName: "Academics",
       role: "FORWARDING_AUTHORITY_ACADEMICS",
       password: "123456",
     },
@@ -162,7 +165,7 @@ function ensureSeedData(store: AppStore) {
     },
     {
       email: "rnd@iitrpr.ac.in",
-      fullName: "Forwarding Authority (R&D)",
+      fullName: "R&D",
       role: "FORWARDING_AUTHORITY_R_AND_D",
       password: "123456",
     },
@@ -204,7 +207,7 @@ function ensureSeedData(store: AppStore) {
     },
     {
       email: "dean@iitrpr.ac.in",
-      fullName: "Dean FA&A",
+      fullName: "Dean",
       role: "DEAN_FAA",
       password: "123456",
     },
@@ -348,6 +351,23 @@ export function updateUserRole(userId: string, role: AppRole) {
   return user;
 }
 
+export function updateUserPassword(email: string, newPassword: string) {
+  if (!newPassword || newPassword.length < 6) {
+    throw new Error("Password must be at least 6 characters.");
+  }
+
+  const store = getStore();
+  const normalizedEmail = normalizeEmail(email);
+  const user = store.users.find((u) => u.email === normalizedEmail);
+  if (!user) {
+    throw new Error("Account not found.");
+  }
+
+  user.password = newPassword;
+  user.updatedAt = now();
+  return user;
+}
+
 export function createEmailIdForm(input: Omit<EmailIdFormRecord, "id" | "createdAt" | "updatedAt" | "status">) {
   const store = getStore();
   const form: EmailIdFormRecord = {
@@ -437,6 +457,7 @@ export function listEmailIdForms(params?: {
 
 export function addForwardingApproval(input: {
   formId: string;
+  stage: number;
   section: ForwardingSection;
   approverName: string;
 }) {
@@ -445,15 +466,15 @@ export function addForwardingApproval(input: {
   if (!form) {
     throw new Error("Form not found.");
   }
-  if (form.status !== "PENDING") {
-    throw new Error("Form is not in PENDING state.");
+  if (form.status === "REJECTED" || form.status === "ISSUED") {
+    throw new Error("Form is already completed.");
   }
 
   const approval: EmailIdApprovalRecord = {
     id: newId("apr"),
     createdAt: now(),
     formId: input.formId,
-    stage: 1,
+    stage: input.stage,
     forwardingSection: input.section,
     approverName: input.approverName,
     assignedEmailId: null,
@@ -471,6 +492,7 @@ export function addForwardingApproval(input: {
 
 export function addIssueApproval(input: {
   formId: string;
+  stage: number;
   assignedEmailId: string;
   dateOfCreation: string;
   tentativeRemovalDate: string | null;
@@ -481,15 +503,15 @@ export function addIssueApproval(input: {
   if (!form) {
     throw new Error("Form not found.");
   }
-  if (form.status !== "FORWARDED") {
-    throw new Error("Form has not been forwarded yet.");
+  if (form.status === "REJECTED" || form.status === "ISSUED") {
+    throw new Error("Form is already completed.");
   }
 
   const approval: EmailIdApprovalRecord = {
     id: newId("apr"),
     createdAt: now(),
     formId: input.formId,
-    stage: 2,
+    stage: input.stage,
     forwardingSection: null,
     approverName: input.idCreatedBy,
     assignedEmailId: input.assignedEmailId,
@@ -509,6 +531,7 @@ export function addIssueApproval(input: {
 
 export function rejectEmailIdForm(input: {
   formId: string;
+  stage: number;
   section: ForwardingSection;
   approverName: string;
   remark: string;
@@ -518,15 +541,15 @@ export function rejectEmailIdForm(input: {
   if (!form) {
     throw new Error("Form not found.");
   }
-  if (form.status !== "PENDING") {
-    throw new Error("Form is not in PENDING state.");
+  if (form.status === "REJECTED" || form.status === "ISSUED") {
+    throw new Error("Form is already completed.");
   }
 
   const approval: EmailIdApprovalRecord = {
     id: newId("apr"),
     createdAt: now(),
     formId: input.formId,
-    stage: 1,
+    stage: input.stage,
     forwardingSection: input.section,
     approverName: `Rejected by ${input.approverName} | ${input.remark}`,
     assignedEmailId: null,
