@@ -28,8 +28,39 @@ import {
   updateUserRole,
 } from "@/lib/user-store";
 import { getSupabaseAdminClient, getSupabaseAnonClient } from "@/lib/supabase";
+import { randomBytes } from "node:crypto";
+import { createLoginOtp, verifyLoginOtp } from "@/lib/otp-store";
+import { sendOtpEmail } from "@/lib/mailer";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+
+async function finalizeLogin(input: {
+  user: { id: string; email: string; role: AppRole | null };
+  isStudentRequest: boolean;
+}) {
+  await setSessionEmail(input.user.email);
+
+  if (!input.user.role && isInstituteEmail(input.user.email)) {
+    await setStudentRoleRequestTag(input.user.id, input.isStudentRequest);
+  }
+
+  if (input.user.role === "SYSTEM_ADMIN") {
+    redirect("/admin");
+  }
+
+  const delegatedRole = await getActiveDelegatedRoleForUser(input.user.id);
+  const effectiveRole = delegatedRole ?? input.user.role;
+
+  if (effectiveRole) {
+    redirect(await getDashboardPathForUser(input.user.id, input.user.role));
+  }
+
+  if (isInstituteEmail(input.user.email) && !input.user.role) {
+    redirect("/pending-role");
+  }
+
+  redirect(await getDashboardPathForRole(input.user.role));
+}
 
 export async function signInWithEmail(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
@@ -69,28 +100,7 @@ export async function signInWithEmail(formData: FormData) {
     return { error: (error as Error).message };
   }
 
-  await setSessionEmail(email);
-
-  if (!user.role && isInstituteEmail(user.email)) {
-    await setStudentRoleRequestTag(user.id, isStudentRequest);
-  }
-
-  if (user.role === "SYSTEM_ADMIN") {
-    redirect("/admin");
-  }
-
-  const delegatedRole = await getActiveDelegatedRoleForUser(user.id);
-  const effectiveRole = delegatedRole ?? user.role;
-
-  if (effectiveRole) {
-    redirect(await getDashboardPathForUser(user.id, user.role));
-  }
-
-  if (isInstituteEmail(user.email) && !user.role) {
-    redirect("/pending-role");
-  }
-
-  redirect(await getDashboardPathForRole(user.role));
+  await finalizeLogin({ user, isStudentRequest });
 }
 
 export async function signOut() {
@@ -102,6 +112,89 @@ type PasswordResetState = {
   error?: string;
   success?: string;
 };
+
+type OtpLoginState = {
+  error?: string;
+  success?: string;
+};
+
+export async function sendLoginOtp(_prev: OtpLoginState, formData: FormData) {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+
+  if (!email) {
+    return { error: "Email is required." };
+  }
+
+  if (!canUseInstitutionLogin(email)) {
+    return { error: "Enter a valid email address." };
+  }
+
+  const user = await findUserByEmail(email);
+  if (!user && !isInstituteEmail(email)) {
+    return { error: "Account not found. Please sign up first." };
+  }
+
+  try {
+    const { code } = await createLoginOtp({ email, expiresMinutes: 10 });
+    await sendOtpEmail({ to: email, code, expiresMinutes: 10 });
+    return { success: "OTP sent. Check your email inbox." };
+  } catch (error) {
+    return { error: (error as Error).message || "Unable to send OTP." };
+  }
+}
+
+export async function signInWithOtp(_prev: OtpLoginState, formData: FormData) {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const otp = String(formData.get("otp") ?? "").trim();
+  const isStudentRequest = String(formData.get("isStudentRequest") ?? "") === "on";
+
+  if (!email) {
+    return { error: "Email is required." };
+  }
+
+  if (!canUseInstitutionLogin(email)) {
+    return { error: "Enter a valid email address." };
+  }
+
+  if (!otp) {
+    return { error: "OTP is required." };
+  }
+
+  try {
+    const result = await verifyLoginOtp({ email, code: otp });
+    if (!result.ok) {
+      return { error: result.reason === "expired" ? "OTP expired. Please resend." : "Invalid OTP." };
+    }
+
+    let user = await findUserByEmail(email);
+    if (!user) {
+      if (!isInstituteEmail(email)) {
+        return { error: "Account not found. Please sign up first." };
+      }
+
+      const randomPassword = randomBytes(18).toString("hex");
+      user = (
+        await authenticateUser({
+          mode: "signup",
+          email,
+          password: randomPassword,
+          forceSystemAdmin: isSystemAdminEmail(email),
+        })
+      ).user;
+    }
+
+    await finalizeLogin({ user, isStudentRequest });
+  } catch (error) {
+    if (error && typeof error === "object" && "digest" in error) {
+      const digest = String((error as { digest?: string }).digest ?? "");
+      if (digest.startsWith("NEXT_REDIRECT")) {
+        throw error;
+      }
+    }
+
+    return { error: (error as Error).message || "Unable to sign in." };
+  }
+}
 
 export async function sendPasswordResetOtp(_prev: PasswordResetState, formData: FormData) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();

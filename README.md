@@ -33,6 +33,14 @@ For password reset via Supabase OTP, also set:
 - `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
+For custom OTP login email delivery (Nodemailer), set:
+
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_USER`
+- `SMTP_PASS`
+- `SMTP_FROM`
+
 ## 3) Prisma Commands
 
 ```bash
