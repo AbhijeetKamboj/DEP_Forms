@@ -28,7 +28,6 @@ import {
   updateUserRole,
 } from "@/lib/user-store";
 import { getSupabaseAdminClient, getSupabaseAnonClient } from "@/lib/supabase";
-import { randomBytes } from "node:crypto";
 import { createLoginOtp, verifyLoginOtp } from "@/lib/otp-store";
 import { sendOtpEmail } from "@/lib/mailer";
 import { revalidatePath } from "next/cache";
@@ -130,8 +129,8 @@ export async function sendLoginOtp(_prev: OtpLoginState, formData: FormData) {
   }
 
   const user = await findUserByEmail(email);
-  if (!user && !isInstituteEmail(email)) {
-    return { error: "Account not found. Please sign up first." };
+  if (!user) {
+    return { error: "Account not found. Please sign up with a password first." };
   }
 
   try {
@@ -166,21 +165,9 @@ export async function signInWithOtp(_prev: OtpLoginState, formData: FormData) {
       return { error: result.reason === "expired" ? "OTP expired. Please resend." : "Invalid OTP." };
     }
 
-    let user = await findUserByEmail(email);
+    const user = await findUserByEmail(email);
     if (!user) {
-      if (!isInstituteEmail(email)) {
-        return { error: "Account not found. Please sign up first." };
-      }
-
-      const randomPassword = randomBytes(18).toString("hex");
-      user = (
-        await authenticateUser({
-          mode: "signup",
-          email,
-          password: randomPassword,
-          forceSystemAdmin: isSystemAdminEmail(email),
-        })
-      ).user;
+      return { error: "Account not found. Please sign up with a password first." };
     }
 
     await finalizeLogin({ user, isStudentRequest });
