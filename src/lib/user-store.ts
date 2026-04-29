@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
-import type { AppRole, AuthMode } from "@/lib/mock-db";
+import type { AppRole, AuthMode, UserRecord } from "@/lib/mock-db";
 import { getPgPool } from "@/lib/db";
 import {
   authenticateUser as authenticateUserInMemory,
@@ -412,6 +412,18 @@ function mapRow(row: {
   };
 }
 
+function mapRecord(record: UserRecord): PersistedUser {
+  return {
+    id: record.id,
+    email: record.email,
+    fullName: record.fullName ?? null,
+    department: record.department ?? null,
+    role: record.role,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
 export async function findUserByEmail(email: string) {
   if (!hasDatabaseUrl()) {
     return findUserByEmailInMemory(email);
@@ -572,13 +584,13 @@ export async function updateUserPassword(email: string, newPassword: string) {
 
 export async function listUsers() {
   if (!hasDatabaseUrl()) {
-    return listUsersInMemory();
+    return listUsersInMemory().map(mapRecord);
   }
 
   await ensureSchemaAndSeed();
   const pool = getPgPool();
   if (!pool) {
-    return listUsersInMemory();
+    return listUsersInMemory().map(mapRecord);
   }
 
   const result = await pool.query(
