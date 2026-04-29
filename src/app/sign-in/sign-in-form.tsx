@@ -361,7 +361,7 @@ export function SignInForm({ initialMode = "login", showModeToggle = true }: Sig
         <button
           type="button"
           onClick={() => setLoginMethod("otp")}
-          className="w-full rounded-full border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-700 transition hover:border-gray-400 hover:text-black"
+          className="w-full rounded-full border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm font-semibold uppercase tracking-[0.08em] text-emerald-800 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-900 focus:outline-none focus:ring-4 focus:ring-emerald-200"
         >
           Login with OTP instead
         </button>
