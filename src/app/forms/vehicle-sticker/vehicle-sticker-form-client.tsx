@@ -23,13 +23,19 @@ export function VehicleStickerFormClient({ departments }: { departments: { name:
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
-    const formData = new FormData(event.currentTarget);
-    formData.set("declarationDate", declarationDate || getTodayLocalDate());
-
     startTransition(async () => {
       try {
-        await submitVehicleStickerForm(formData);
+        const formData = new FormData(event.currentTarget);
+        formData.set("declarationDate", declarationDate || getTodayLocalDate());
+        const result = await submitVehicleStickerForm(formData);
+        if (result?.error) {
+          setError(result.error);
+        }
       } catch (err) {
+        // If it's a redirect error or other thrown error, Next.js handles it if we don't swallow it.
+        if ((err as Error).message?.includes("NEXT_REDIRECT")) {
+          throw err;
+        }
         setError((err as Error).message);
       }
     });

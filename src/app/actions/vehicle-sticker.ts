@@ -160,7 +160,7 @@ export async function submitVehicleStickerForm(formData: FormData) {
   const colour = String(formData.get("vehicleColour") ?? "").trim();
 
   if (!registrationNo || !vehicleType || !makeModel || !colour) {
-    throw new Error("Please fill all vehicle details.");
+    return { error: "Please fill all vehicle details." };
   }
 
   const vehicleDetails = [
@@ -183,7 +183,7 @@ export async function submitVehicleStickerForm(formData: FormData) {
   for (const fileField of requiredFiles) {
     const value = formData.get(fileField.key);
     if (!(value instanceof File) || value.size === 0) {
-      throw new Error(`${fileField.label} is required.`);
+      return { error: `${fileField.label} is required.` };
     }
   }
 
@@ -213,7 +213,7 @@ export async function submitVehicleStickerForm(formData: FormData) {
     !drivingLicenseNo ||
     !dlValidUpto
   ) {
-    throw new Error("Please fill all required fields.");
+    return { error: "Please fill all required fields." };
   }
 
   const submissionId = await createVehicleStickerForm({
