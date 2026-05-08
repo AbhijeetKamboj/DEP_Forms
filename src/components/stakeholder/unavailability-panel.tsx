@@ -60,7 +60,7 @@ export async function UnavailabilityPanel(props: {
         <div>
           <h2 className="text-xl font-semibold text-slate-900">Unavailability & Delegation</h2>
           <p className="mt-1 text-sm text-slate-600">
-            Notify System Admin when you are unavailable. Proposed replacement is optional.
+            Notify System Admin when you are unavailable.
           </p>
         </div>
       </div>
@@ -90,7 +90,7 @@ export async function UnavailabilityPanel(props: {
               placeholder="Please mention why you are unavailable."
             />
           </div>
-          <div className="sm:col-span-2">
+          <div className="hidden sm:col-span-2">
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               Proposed Replacement (Optional)
             </label>
@@ -104,6 +104,8 @@ export async function UnavailabilityPanel(props: {
                 </option>
               ))}
             </select>
+          </div>
+          <div className="sm:col-span-2">
             <p className="mt-1 text-xs text-slate-500">
               Queue forwarding below applies only to your normal role queues.
             </p>
@@ -194,9 +196,6 @@ export async function UnavailabilityPanel(props: {
                 {new Date(request.startsAt).toLocaleDateString("en-IN")} - {new Date(request.endsAt).toLocaleDateString("en-IN")}
               </p>
               <p className="mt-1 text-sm text-slate-600">Reason: {request.reason}</p>
-              <p className="mt-1 text-sm text-slate-600">
-                Replacement: {request.replacementEmail ? `${request.replacementName ?? ""} ${request.replacementEmail}`.trim() : "Not assigned yet"}
-              </p>
               {request.adminRemarks ? (
                 <p className="mt-1 text-sm text-slate-600">Admin note: {request.adminRemarks}</p>
               ) : null}

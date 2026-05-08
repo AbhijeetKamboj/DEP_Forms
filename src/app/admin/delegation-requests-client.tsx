@@ -263,9 +263,6 @@ export function DelegationRequestsClient(props: {
                     </p>
                     <p className="mt-1 text-sm text-slate-600">Reason: {request.reason}</p>
                     <p className="mt-1 text-sm text-slate-600">
-                      Proposed/Assigned replacement: {request.replacementEmail ? `${request.replacementName ?? ""} ${request.replacementEmail}`.trim() : "Not provided"}
-                    </p>
-                    <p className="mt-1 text-sm text-slate-600">
                       Queue-wise forwarding: {submittedQueueDelegationText || "Not configured"}
                     </p>
                     {requestOverrides.length > 0 ? (
@@ -316,31 +313,7 @@ export function DelegationRequestsClient(props: {
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <form action={approveUnavailabilityRequest} className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
                       <input type="hidden" name="requestId" value={request.id} />
-                      {hasStakeholderRecommendation ? (
-                        <p className="mb-2 rounded-md border border-emerald-200 bg-white px-2 py-1.5 text-xs font-semibold text-emerald-800">
-                          Stakeholder already provided recommendation; fallback replacement is hidden.
-                        </p>
-                      ) : (
-                        <>
-                          <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-emerald-800">
-                            Fallback replacement (optional)
-                          </label>
-                          <select
-                            name="replacementUserId"
-                            defaultValue={currentReplacement?.id ?? ""}
-                            className="input w-full"
-                          >
-                            <option value="">No fallback replacement</option>
-                            {replacementOptions.map((user) => (
-                              <option key={user.id} value={user.id}>
-                                {user.fullName ? `${user.fullName} · ` : ""}
-                                {user.email}
-                                {user.role ? ` · ${toDisplayRole(user.role)}` : ""}
-                              </option>
-                            ))}
-                          </select>
-                        </>
-                      )}
+                      <input type="hidden" name="replacementUserId" value={currentReplacement?.id ?? ""} />
                       <textarea
                         name="adminRemarks"
                         rows={2}
